@@ -9,12 +9,12 @@ from twilio.rest import Client
 app = Flask(__name__)
 
 # Google Places API Key (server-side only, never sent to browser)
-GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "AIzaSyCNWydIDToJGXRbzCGh5usgEccWgPZoB64")
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 
 # Twilio Config
-TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "AC4e86223fb1497143cc382ee3d20cfdcf")
-TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "c87ad2b0dea6cc33c07b4909da84b14d")
-TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "VAee50717032bdb5f3bb963df265f18d2a")
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
+TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
 USE_TWILIO = True # Twilio Verify enabled — live OTP SMS active
 TWILIO_FROM_NUMBER = "+15075555555"  # ← Replace with your Twilio number from console.twilio.com
 
