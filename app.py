@@ -376,6 +376,10 @@ def search_places():
             return jsonify({"error": data["error"].get("message", "API error")}), 500
 
         results = []
+        user_lat = float(lat) if lat else None
+        user_lng = float(lng) if lng else None
+
+        # 1. ONLY grab the 5 hospitals Google returned (keeping the exact same hospitals as before)
         for place in data.get("places", [])[:5]:
             loc     = place.get("location", {})
             oh      = place.get("currentOpeningHours", {})
@@ -383,6 +387,15 @@ def search_places():
             name    = place.get("displayName", {}).get("text", "Unknown")
             ptype   = place.get("primaryTypeDisplayName", {}).get("text", "Hospital")
             photo_name = photos[0].get("name", "") if photos else ""
+            
+            p_lat = loc.get("latitude")
+            p_lng = loc.get("longitude")
+            
+            # Simple distance calculation for sorting
+            dist_sq = 0
+            if user_lat is not None and user_lng is not None and p_lat is not None and p_lng is not None:
+                dist_sq = (user_lat - p_lat) ** 2 + (user_lng - p_lng) ** 2
+
             results.append({
                 "id":       place.get("id"),
                 "name":     name,
@@ -391,11 +404,17 @@ def search_places():
                 "reviews":  place.get("userRatingCount", 0),
                 "isOpen":   oh.get("openNow", True),
                 "status":   "Open now" if oh.get("openNow", True) else "Closed",
-                "lat":      loc.get("latitude"),
-                "lng":      loc.get("longitude"),
+                "lat":      p_lat,
+                "lng":      p_lng,
                 "type":     ptype,
-                "photo_name": photo_name
+                "photo_name": photo_name,
+                "dist_sq":  dist_sq
             })
+            
+        # 2. Sort ONLY those 5 hospitals. 
+        # Sort by Highest Reviews (descending), then Closest Distance (ascending)
+        results.sort(key=lambda x: (-x['reviews'], x['dist_sq']))
+
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
