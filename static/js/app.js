@@ -1,21 +1,37 @@
 
+const createInitialProfile = () => ({
+    name: '', age: '', relationship: 'Self', otherRelationship: '',
+    allergies: [], chronic_conditions: [],
+    medications: [], surgical_history: ''
+});
+
+const createInitialEmergencyData = () => ({
+    type: '',
+    searchAddress: '', // Human readable address string
+    lat: 17.3875, lng: 78.4870, // Default center
+    hospital_id: null
+});
 
 const state = {
     user: { id: null, phone: '', resendAttempts: 0 },
     isOtpSent: false,
     intakeStep: 1,
-    profile: {
-        name: '', age: '', relationship: 'Self', otherRelationship: '',
-        allergies: [], chronic_conditions: [], 
-        medications: [], surgical_history: ''
-    },
-    emergencyData: {
-        type: '',
-        searchAddress: '', // Human readable address string
-        lat: 17.3875, lng: 78.4870, // Default center
-        hospital_id: null
-    },
+    profile: createInitialProfile(),
+    emergencyData: createInitialEmergencyData(),
     hospitals: []
+};
+
+const resetFlowState = ({ preservePhone = true } = {}) => {
+    const currentPhone = state.user.phone;
+    state.isOtpSent = false;
+    state.intakeStep = 1;
+    state.user.id = null;
+    state.user.resendAttempts = 0;
+    state.user.phone = preservePhone ? currentPhone : '';
+    state.profile = createInitialProfile();
+    state.emergencyData = createInitialEmergencyData();
+    state.hospitals = [];
+    localStorage.removeItem('resqnow_v2');
 };
 
 // Persistence Logic
@@ -29,15 +45,11 @@ const loadState = () => {
         if (saved) {
             const parsed = JSON.parse(saved);
             state.user = { ...state.user, ...parsed.user };
-            state.profile = { ...state.profile, ...parsed.profile };
-            state.emergencyData = { ...state.emergencyData, ...parsed.emergencyData };
-            // Always clear OTP state on refresh — login screen always resets to phone input
-            state.isOtpSent = false;
-            // Never restore hospitals — always fetch fresh
+            // Never restore profile/emergency data from cache.
+            state.profile = createInitialProfile();
+            state.emergencyData = createInitialEmergencyData();
             state.hospitals = [];
-            // Don't pre-fill name/age — user must type fresh each session
-            state.profile.name = '';
-            state.profile.age = '';
+            state.isOtpSent = false;
         }
     } catch(e) {
         console.error("State parse error", e);
@@ -99,15 +111,29 @@ const api = {
         const res = await fetch('/api/hospitals');
         return res.json();
     },
+    clearHospitals: async () => {
+        const res = await fetch('/api/hospitals/clear', {
+            method: 'POST'
+        });
+        return res.json();
+    },
     dispatch: async () => {
+        const selectedHospital = state.emergencyData.selectedHospital || {};
+        const driver = state.emergencyData.driver || {};
         const res = await fetch('/api/dispatch', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 user_id: state.user.id,
-                emergency_type: state.emergencyData.type,
+                emergency_type: state.emergencyData.emergencyType || state.emergencyData.type,
                 lat: state.emergencyData.lat,
                 lng: state.emergencyData.lng,
-                hospital_id: state.emergencyData.hospital_id
+                hospital_id: state.emergencyData.hospital_id,
+                hospital_name: selectedHospital.name || null,
+                hospital_lat: selectedHospital.lat ?? null,
+                hospital_lng: selectedHospital.lng ?? null,
+                service_request_no: state.emergencyData.bookingRef || null,
+                driver_name: driver.name || null,
+                vehicle_number: state.emergencyData.plateNumber || null
             })
         });
         return res.json();
@@ -353,7 +379,7 @@ window.handleLogin = async () => {
 };
 
 window.resetLogin = () => {
-    state.isOtpSent = false;
+    resetFlowState();
     render();
 };
 
@@ -365,6 +391,7 @@ window.verifyOTP = async () => {
     try {
         const res = await api.verify(state.user.phone, otp);
         if (res.success) {
+            resetFlowState();
             state.user.id = res.user_id;
             router.navigate('/identity');
         } else {
@@ -938,7 +965,7 @@ window.confirmDispatch = (hid) => {
     };
 
     // ── Phase 2: Booked confirmation ──
-    const showBooked = () => {
+    const showBooked = async () => {
         const reqId = 'RQ' + Math.floor(100000 + Math.random() * 900000);
         const drivers = [
             { name: 'Rajan Sharma',   phone: '9876501234' },
@@ -950,6 +977,12 @@ window.confirmDispatch = (hid) => {
         const driver = drivers[Math.floor(Math.random() * drivers.length)];
         state.emergencyData.bookingRef = reqId;
         state.emergencyData.driver = driver;
+
+        try {
+            await api.dispatch();
+        } catch (e) {
+            console.warn('Dispatch save failed', e);
+        }
 
         app.innerHTML =
             '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;padding:2rem;text-align:center;">' +
@@ -1098,6 +1131,7 @@ const TrackingView = () => {
                 clearInterval(tick);
                 // Persist so reload keeps this screen
                 localStorage.setItem('rq_reached', state.emergencyData.bookingRef || 'RQ000000');
+                api.clearHospitals().catch(e => console.warn('Hospital cleanup failed', e));
                 const renderReached = (ref) => {
                     document.getElementById('app').innerHTML =
                         '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;padding:2rem;text-align:center;">' +
@@ -1299,6 +1333,7 @@ const render = () => {
     // ── Persist the "Reached" screen across reloads (but not fresh visits) ──
     const reachedRef = localStorage.getItem('rq_reached');
     if (reachedRef) {
+        api.clearHospitals().catch(e => console.warn('Hospital cleanup failed', e));
         app.innerHTML =
             '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:white;padding:2rem;text-align:center;">' +
             '<div style="width:100px;height:100px;border-radius:50%;background:#DCFCE7;display:flex;align-items:center;justify-content:center;margin-bottom:1.5rem;box-shadow:0 0 0 16px #F0FDF4;">' +

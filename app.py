@@ -9,12 +9,12 @@ from twilio.rest import Client
 app = Flask(__name__)
 
 # Google Places API Key (server-side only, never sent to browser)
-GOOGLE_PLACES_API_KEY = "AIzaSyCNWydIDToJGXRbzCGh5usgEccWgPZoB64"
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "AIzaSyCNWydIDToJGXRbzCGh5usgEccWgPZoB64")
 
 # Twilio Config
-TWILIO_ACCOUNT_SID = "AC4e86223fb1497143cc382ee3d20cfdcf"
-TWILIO_AUTH_TOKEN = "4af802bc22d0801f8d1be80c853b3698"
-TWILIO_VERIFY_SERVICE_SID = "VAee50717032bdb5f3bb963df265f18d2a"
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "AC4e86223fb1497143cc382ee3d20cfdcf")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "c87ad2b0dea6cc33c07b4909da84b14d")
+TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "VAee50717032bdb5f3bb963df265f18d2a")
 USE_TWILIO = True # Twilio Verify enabled — live OTP SMS active
 TWILIO_FROM_NUMBER = "+15075555555"  # ← Replace with your Twilio number from console.twilio.com
 
@@ -22,7 +22,7 @@ TWILIO_FROM_NUMBER = "+15075555555"  # ← Replace with your Twilio number from 
 basedir = os.path.abspath(os.path.dirname(__file__))
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + os.path.join(basedir, 'resqnow.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.secret_key = 'super-secret-resqnow-key'
+app.secret_key = os.environ.get('SECRET_KEY', 'super-secret-resqnow-key')
 
 db = SQLAlchemy(app)
 
@@ -52,11 +52,20 @@ class Hospital(db.Model):
 
 class EmergencyRequest(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     emergency_type = db.Column(db.String(50))
     lat = db.Column(db.Float)
     lng = db.Column(db.Float)
-    hospital_id = db.Column(db.Integer, db.ForeignKey('hospital.id'))
+    status = db.Column(db.String(20))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+class BookingHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_name = db.Column(db.String(100))
+    emergency_type = db.Column(db.String(50))
+    hospital_name = db.Column(db.String(150))
+    service_request_no = db.Column(db.String(50))
+    driver_name = db.Column(db.String(100))
+    vehicle_number = db.Column(db.String(50))
     status = db.Column(db.String(20))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -233,6 +242,31 @@ def get_profile(user_id):
         "surgical_history": user.surgical_history
     })
 
+@app.route('/api/history/<int:user_id>', methods=['GET'])
+def get_booking_history(user_id):
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    history = BookingHistory.query.filter_by(user_name=user.name) \
+        .order_by(BookingHistory.timestamp.desc()) \
+        .all()
+
+    return jsonify([
+        {
+            "id": item.id,
+            "user_name": item.user_name,
+            "emergency_type": item.emergency_type,
+            "hospital_name": item.hospital_name,
+            "service_request_no": item.service_request_no,
+            "driver_name": item.driver_name,
+            "vehicle_number": item.vehicle_number,
+            "status": item.status,
+            "timestamp": item.timestamp.isoformat() if item.timestamp else None
+        }
+        for item in history
+    ])
+
 @app.route('/api/hospitals', methods=['GET'])
 def get_hospitals():
     hospitals = Hospital.query.order_by(Hospital.distance_km).all()
@@ -253,6 +287,17 @@ def get_hospitals():
         })
     return jsonify(res)
 
+@app.route('/api/hospitals/clear', methods=['POST'])
+def clear_hospitals():
+    cleared_requests = db.session.query(EmergencyRequest).delete(synchronize_session=False)
+    deleted = db.session.query(Hospital).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({
+        "success": True,
+        "deleted_hospitals": deleted,
+        "deleted_requests": cleared_requests
+    })
+
 @app.route('/api/dispatch', methods=['POST'])
 def dispatch_help():
     data = request.json
@@ -261,18 +306,39 @@ def dispatch_help():
     lat = data.get('lat')
     lng = data.get('lng')
     hospital_id = data.get('hospital_id')
+    hospital_name = data.get('hospital_name')
+    service_request_no = data.get('service_request_no')
+    driver_name = data.get('driver_name')
+    vehicle_number = data.get('vehicle_number')
+    user = User.query.get(user_id)
+    user_name = user.name if user else None
+
+    if not hospital_name and hospital_id:
+        hospital = Hospital.query.filter_by(id=hospital_id).first()
+        if hospital:
+            hospital_name = hospital.name
     
     req = EmergencyRequest(
-        user_id=user_id,
         emergency_type=emergency_type,
         lat=lat,
         lng=lng,
-        hospital_id=hospital_id,
         status="Dispatched"
     )
+
+    booking = BookingHistory(
+        user_name=user_name,
+        emergency_type=emergency_type,
+        hospital_name=hospital_name,
+        service_request_no=service_request_no,
+        driver_name=driver_name,
+        vehicle_number=vehicle_number,
+        status="Dispatched"
+    )
+
     db.session.add(req)
+    db.session.add(booking)
     db.session.commit()
-    return jsonify({"success": True, "request_id": req.id})
+    return jsonify({"success": True, "request_id": req.id, "booking_id": booking.id})
 
 @app.route('/api/places', methods=['GET'])
 def search_places():
