@@ -200,6 +200,10 @@ async function structuralScan(lat, lng) {
         }));
         const top5 = results.slice(0, 5);
         await fetchRoadData(lat, lng, top5);
+        
+        // Sort the fallback results by reviews descending, just like the backend
+        top5.sort((a, b) => b.reviews - a.reviews);
+        
         return top5;
     } catch(e) { return []; }
 }
