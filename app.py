@@ -15,7 +15,7 @@ GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN", "")
 TWILIO_VERIFY_SERVICE_SID = os.environ.get("TWILIO_VERIFY_SERVICE_SID", "")
-USE_TWILIO = False # Twilio Verify disabled — Mock OTP (123456) active
+USE_TWILIO = True # Twilio Verify enabled
 TWILIO_FROM_NUMBER = "+15075555555"  # ← Replace with your Twilio number from console.twilio.com
 
 # Database config
