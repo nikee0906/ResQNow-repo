@@ -376,27 +376,45 @@ def search_places():
             return jsonify({"error": data["error"].get("message", "API error")}), 500
 
         results = []
-        for place in data.get("places", [])[:5]:
+        user_lat = float(lat) if lat else None
+        user_lng = float(lng) if lng else None
+
+        for place in data.get("places", []):
             loc     = place.get("location", {})
             oh      = place.get("currentOpeningHours", {})
             photos  = place.get("photos", [])
             name    = place.get("displayName", {}).get("text", "Unknown")
             ptype   = place.get("primaryTypeDisplayName", {}).get("text", "Hospital")
             photo_name = photos[0].get("name", "") if photos else ""
+            
+            p_lat = loc.get("latitude")
+            p_lng = loc.get("longitude")
+            
+            # Simple squared distance for sorting if user location is available
+            dist_sq = 0
+            if user_lat is not None and user_lng is not None and p_lat is not None and p_lng is not None:
+                dist_sq = (user_lat - p_lat) ** 2 + (user_lng - p_lng) ** 2
+
             results.append({
                 "id":       place.get("id"),
                 "name":     name,
                 "address":  place.get("formattedAddress", ""),
-                "rating":   place.get("rating"),
+                "rating":   place.get("rating") or 0,
                 "reviews":  place.get("userRatingCount", 0),
                 "isOpen":   oh.get("openNow", True),
                 "status":   "Open now" if oh.get("openNow", True) else "Closed",
-                "lat":      loc.get("latitude"),
-                "lng":      loc.get("longitude"),
+                "lat":      p_lat,
+                "lng":      p_lng,
                 "type":     ptype,
-                "photo_name": photo_name
+                "photo_name": photo_name,
+                "dist_sq":  dist_sq
             })
-        return jsonify(results)
+            
+        # Sort by highest rating (descending), then closest distance (ascending)
+        results.sort(key=lambda x: (-x['rating'], x['dist_sq']))
+
+        # Return only top 5
+        return jsonify(results[:5])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
